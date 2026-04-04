@@ -303,9 +303,11 @@ if st.button("🚀 Train Models & Generate Analysis", use_container_width=True, 
             else:
                 model.fit(X_train, y_train)
 
-        # SAVE SCALER AND MODELS TO SESSION STATE
+        # SAVE EVERYTHING NEEDED FOR LATER TABS
         st.session_state['models'] = models
-        st.session_state['scaler'] = scaler  # Crucial for new file diagnosis
+        st.session_state['scaler'] = scaler
+        st.session_state['X_train'] = X_train      # <--- FIX: Saving X_train
+        st.session_state['y_train'] = y_train      # <--- FIX: Saving y_train
         st.session_state['X_test'] = X_test
         st.session_state['X_test_scaled'] = X_test_scaled
         st.session_state['y_test'] = y_test
@@ -319,7 +321,9 @@ if 'trained' not in st.session_state or not st.session_state['trained']:
     st.stop()
 
 models = st.session_state['models']
-scaler = st.session_state['scaler'] # Retrieve scaler
+scaler = st.session_state['scaler']
+X_train = st.session_state['X_train'] # <--- FIX: Retrieve X_train
+y_train = st.session_state['y_train'] # <--- FIX: Retrieve y_train
 X_test = st.session_state['X_test']
 X_test_scaled = st.session_state['X_test_scaled']
 y_test = st.session_state['y_test']
@@ -339,13 +343,16 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
 with tab1:
     st.subheader("Random Forest: Training vs Test Accuracy")
     fig_lc, ax_lc = plt.subplots(figsize=(10, 5))
-    rf = models["Random Forest"]
+    
+    # Use the saved X_train and y_train
     rf_plot = RandomForestClassifier(warm_start=True, max_depth=100, min_samples_split=5, min_samples_leaf=2, random_state=42, n_jobs=-1)
     n_iterations = 100 
     train_acc, test_acc = [], []
     
     with st.spinner("Generating Learning Curve data..."):
+        # Create a local validation split from the training set
         X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+        
         for i in range(1, n_iterations + 1):
             rf_plot.n_estimators = i
             rf_plot.fit(X_tr, y_tr)
@@ -597,7 +604,7 @@ with tab8:
     plt.clf()
 
 # ============================================================
-# TAB 9: FILE DIAGNOSIS (NEW FEATURE)
+# TAB 9: FILE DIAGNOSIS
 # ============================================================
 with tab9:
     st.header("🔍 Diagnose New File")
@@ -609,10 +616,9 @@ with tab9:
     if uploaded_file is not None:
         try:
             # 1. Read the uploaded file
-            # Assuming header=2 based on training data structure
             df_uploaded = pd.read_csv(uploaded_file, header=2)
             
-            if df.shape[1] < 2:
+            if df_uploaded.shape[1] < 2:
                 st.error("File format error: Could not find signal data.")
             else:
                 signal = df_uploaded.iloc[:, 1].values
@@ -637,8 +643,6 @@ with tab9:
                     
                     # 5. Predict
                     rf_model = models["Random Forest"]
-                    # predict_proba returns [Prob_Class_0, Prob_Class_1, ...]
-                    # Class 0 is always Healthy in our config
                     probs = rf_model.predict_proba(X_new_scaled)
                     health_probs = probs[:, 0] # Probability of being Healthy
                     
@@ -684,16 +688,10 @@ with tab9:
                     # Optional: Detailed Fault Breakdown
                     if avg_health_score < 0.5:
                         st.subheader("Likely Fault Type")
-                        # Get class with highest average probability (excluding Healthy)
-                        # Average probabilities for each class
                         avg_class_probs = np.mean(probs, axis=0)
-                        # Sort indices by probability descending
                         sorted_indices = np.argsort(avg_class_probs)[::-1]
                         
-                        # Find the top non-healthy class
                         top_idx = sorted_indices[0]
-                        
-                        # If the top one is healthy (unlikely given score < 0.5, but possible), take next
                         if top_idx == 0 and len(sorted_indices) > 1:
                             top_idx = sorted_indices[1]
                         
