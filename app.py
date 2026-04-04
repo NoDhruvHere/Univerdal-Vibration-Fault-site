@@ -29,7 +29,6 @@ st.set_page_config(page_title="Gearbox Fault Diagnosis", layout="wide", initial_
 # ============================================================
 # CONFIGURATION DICTIONARY
 # ============================================================
-# This dictionary holds all the specific settings for both modes
 APP_CONFIG = {
     "Epicyclic Gearbox": {
         "repo_url": "https://github.com/NoDhruvHere/Final-Year-project-Vibration-DATA.git",
@@ -58,7 +57,6 @@ APP_CONFIG = {
         "repo_name": "Vibration-Project-Data",
         "data_path": "Vibration-Project-Data/CSV",
         "folders": [
-            # Labels shifted to 0-based here for consistency
             {'path': os.path.join('HEALTHY GEAR', 'DE side'), 'label': 0, 'name': 'Healthy'},
             {'path': os.path.join('HEALTHY GEAR', 'Stage 1'), 'label': 0, 'name': 'Healthy'},
             {'path': os.path.join('HEALTHY GEAR', 'Stage 2'), 'label': 0, 'name': 'Healthy'},
@@ -76,7 +74,6 @@ APP_CONFIG = {
     }
 }
 
-# Global Settings
 WINDOW_SIZE = 1000
 STRIDE = 400
 AUGMENTATION_FACTOR = 3
@@ -108,7 +105,6 @@ def extract_features(signal):
     min_val = np.min(signal)
     rms_val = np.sqrt(np.mean(signal**2))
 
-    # Robust Skew/Kurtosis handling
     if std_val < 1e-10:
         skew_val = 0.0
         kurt_val = 0.0
@@ -165,7 +161,6 @@ def load_pipeline_data(selected_mode, config):
     data_path = config['data_path']
     folder_list = config['folders']
 
-    # 1. Clone Repository
     if os.path.exists(repo_name):
         shutil.rmtree(repo_name)
     
@@ -174,7 +169,6 @@ def load_pipeline_data(selected_mode, config):
     if not os.path.exists(data_path):
         return None, None, None, None, "Repository structure mismatch or download failed."
 
-    # 2. Load Data
     all_features = []
     all_labels = []
     all_speeds = []
@@ -208,14 +202,12 @@ def load_pipeline_data(selected_mode, config):
                         end = start + WINDOW_SIZE
                         window = signal[start:end]
 
-                        # Original
                         features = extract_features(window)
                         all_features.append(features)
                         all_labels.append(label)
                         all_speeds.append(current_speed)
                         file_stats[name] += 1
 
-                        # Augmentations
                         for aug_idx in range(AUGMENTATION_FACTOR):
                             aug_type = ['noise', 'scale', 'jitter', 'time_shift'][aug_idx % 4]
                             aug_window = augment_signal(window, aug_type)
@@ -234,8 +226,6 @@ def load_pipeline_data(selected_mode, config):
     X = np.array(all_features)
     y = np.array(all_labels)
     s = np.array(all_speeds)
-    
-    # Clean NaN
     X = np.nan_to_num(X)
     
     return X, y, s, file_stats, "Success"
@@ -247,11 +237,9 @@ def load_pipeline_data(selected_mode, config):
 st.title("🚀 Gearbox Fault Diagnosis Dashboard")
 st.sidebar.header("Configuration")
 
-# 1. Mode Selection
 selected_mode = st.sidebar.radio("Select Gearbox Type:", list(APP_CONFIG.keys()))
 current_config = APP_CONFIG[selected_mode]
 
-# 2. Data Loading Button
 if st.sidebar.button("🔄 Load Data", use_container_width=True):
     with st.spinner(f"Downloading {selected_mode} data and processing..."):
         X, y, speeds, stats, msg = load_pipeline_data(selected_mode, current_config)
@@ -263,7 +251,6 @@ if st.sidebar.button("🔄 Load Data", use_container_width=True):
         st.session_state['trained'] = False
     st.sidebar.success("Data Loaded Successfully!")
 
-# Check if data is loaded
 if 'loaded' not in st.session_state or not st.session_state['loaded']:
     st.info("👈 Please select a Gearbox Type and click 'Load Data' to begin.")
     st.stop()
@@ -273,15 +260,12 @@ y = st.session_state['y']
 speeds = st.session_state['speeds']
 stats = st.session_state['stats']
 
-# 3. Display Stats
 st.subheader("📂 Dataset Overview")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Samples", len(y))
 col2.metric("Fault Classes", len(np.unique(y)))
 col3.metric("Unique Speeds Detected", len(np.unique(speeds[speeds>0])) if len(speeds) > 0 else 0)
 
-# Distribution Plot
-st.write("**Sample Distribution by Class:**")
 fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
 classes = list(stats.keys())
 counts = list(stats.values())
@@ -295,11 +279,9 @@ for bar in bars:
 st.pyplot(fig_dist)
 plt.clf()
 
-# 4. Train & Analyze Button
 st.divider()
 if st.button("🚀 Train Models & Generate Analysis", use_container_width=True, type="primary"):
-    with st.spinner("Training Random Forest, SVM, KNN, Logistic Regression, and Decision Tree... This may take a moment."):
-        # --- PREPARATION ---
+    with st.spinner("Training models..."):
         X_train, X_test, y_train, y_test, s_train, s_test = train_test_split(
             X, y, speeds, test_size=0.3, random_state=100
         )
@@ -307,7 +289,6 @@ if st.button("🚀 Train Models & Generate Analysis", use_container_width=True, 
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # --- MODELS ---
         models = {
             "Random Forest": RandomForestClassifier(n_estimators=300, random_state=42, n_jobs=-1),
             "SVM (RBF)": SVC(kernel='rbf', random_state=42, probability=True),
@@ -316,15 +297,15 @@ if st.button("🚀 Train Models & Generate Analysis", use_container_width=True, 
             "Decision Tree": DecisionTreeClassifier(random_state=42)
         }
 
-        # Fit Models
         for name, model in models.items():
             if name in ["SVM (RBF)", "KNN", "Logistic Reg"]:
                 model.fit(X_train_scaled, y_train)
             else:
                 model.fit(X_train, y_train)
 
-        # Store in session state to avoid re-training on every rerender
+        # SAVE SCALER AND MODELS TO SESSION STATE
         st.session_state['models'] = models
+        st.session_state['scaler'] = scaler  # Crucial for new file diagnosis
         st.session_state['X_test'] = X_test
         st.session_state['X_test_scaled'] = X_test_scaled
         st.session_state['y_test'] = y_test
@@ -337,8 +318,8 @@ if 'trained' not in st.session_state or not st.session_state['trained']:
     st.info("Click 'Train Models & Generate Analysis' to view results.")
     st.stop()
 
-# Retrieve Trained Objects
 models = st.session_state['models']
+scaler = st.session_state['scaler'] # Retrieve scaler
 X_test = st.session_state['X_test']
 X_test_scaled = st.session_state['X_test_scaled']
 y_test = st.session_state['y_test']
@@ -346,28 +327,21 @@ s_test = st.session_state['s_test']
 class_names = current_config['class_names']
 
 # ============================================================
-# VISUALIZATION TABS
+# TABS
 # ============================================================
 st.divider()
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📈 Learning Curve", "⚙️ Speed Accuracy", "📊 Metrics", "🎯 Per-Fault Acc", 
-    "🧠 Confusion Matrix & ROC", "🌌 t-SNE Clustering", "🩺 Anomaly & Health", "🔗 Correlation"
+    "🧠 Confusion Matrix & ROC", "🌌 t-SNE Clustering", "🩺 Anomaly & Health", "🔗 Correlation", "🔍 File Diagnosis"
 ])
 
 # --- TAB 1: LEARNING CURVE ---
 with tab1:
     st.subheader("Random Forest: Training vs Test Accuracy")
     fig_lc, ax_lc = plt.subplots(figsize=(10, 5))
-    
-    # Recalculate quickly for the plot (or could have cached it)
-    # To save time, we will just plot the final point or re-run a quick loop
-    # For demo speed, let's re-run a subset (e.g. 50 iterations) or assume user waits.
-    # We will re-run the loop logic here specifically for the plot.
     rf = models["Random Forest"]
-    # We can't easily get the intermediate history from sklearn without re-fitting or warm_start loop
-    # We'll do a quick warm_start loop for the graph
     rf_plot = RandomForestClassifier(warm_start=True, max_depth=100, min_samples_split=5, min_samples_leaf=2, random_state=42, n_jobs=-1)
-    n_iterations = 100 # Reduced for UI speed
+    n_iterations = 100 
     train_acc, test_acc = [], []
     
     with st.spinner("Generating Learning Curve data..."):
@@ -478,8 +452,6 @@ with tab4:
             accs[np.isnan(accs)] = 0
         per_model_fault_acc[name] = accs
 
-    # Filter out healthy class (index 0) for per-fault graph if desired, or keep all
-    # Keeping all for consistency
     fault_names = class_names 
     
     fig_pfa, ax_pfa = plt.subplots(figsize=(14, 7))
@@ -505,7 +477,6 @@ with tab4:
 with tab5:
     col_a, col_b = st.columns(2)
     
-    # Confusion Matrix
     with col_a:
         st.subheader("Confusion Matrix (Random Forest)")
         rf = models["Random Forest"]
@@ -522,7 +493,6 @@ with tab5:
         st.text("Classification Report (RF):")
         st.text(classification_report(y_test, y_pred_rf, target_names=class_names))
 
-    # ROC
     with col_b:
         st.subheader("ROC Curves (One-vs-All)")
         y_test_bin = label_binarize(y_test, classes=list(range(len(class_names))))
@@ -576,7 +546,7 @@ with tab7:
     
     rf = models["Random Forest"]
     probs = rf.predict_proba(X_test)
-    health_scores = probs[:, 0] # Probability of Class 0 (Healthy)
+    health_scores = probs[:, 0] 
     anomaly_scores = 1 - health_scores
     
     with col_c:
@@ -625,3 +595,109 @@ with tab8:
     ax_corr.set_title('Feature Correlation Matrix')
     st.pyplot(fig_corr)
     plt.clf()
+
+# ============================================================
+# TAB 9: FILE DIAGNOSIS (NEW FEATURE)
+# ============================================================
+with tab9:
+    st.header("🔍 Diagnose New File")
+    st.write("Upload a CSV vibration file to check if the gearbox is **Healthy** or **Faulty**.")
+    st.info("Note: The file should have the same format as the training data (Signal in Column 1).")
+
+    uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+
+    if uploaded_file is not None:
+        try:
+            # 1. Read the uploaded file
+            # Assuming header=2 based on training data structure
+            df_uploaded = pd.read_csv(uploaded_file, header=2)
+            
+            if df.shape[1] < 2:
+                st.error("File format error: Could not find signal data.")
+            else:
+                signal = df_uploaded.iloc[:, 1].values
+                
+                # 2. Check if signal is long enough
+                if len(signal) < WINDOW_SIZE:
+                    st.error(f"Signal too short. Minimum length required: {WINDOW_SIZE} samples. Found: {len(signal)}.")
+                else:
+                    st.success(f"File loaded successfully. Signal length: {len(signal)} samples.")
+
+                    # 3. Process the file (Windowing + Feature Extraction)
+                    windows_features = []
+                    for i in range(0, len(signal) - WINDOW_SIZE, STRIDE):
+                        window = signal[i : i + WINDOW_SIZE]
+                        features = extract_features(window)
+                        windows_features.append(features)
+                    
+                    X_new = np.array(windows_features)
+                    
+                    # 4. Scale using the saved scaler
+                    X_new_scaled = scaler.transform(X_new)
+                    
+                    # 5. Predict
+                    rf_model = models["Random Forest"]
+                    # predict_proba returns [Prob_Class_0, Prob_Class_1, ...]
+                    # Class 0 is always Healthy in our config
+                    probs = rf_model.predict_proba(X_new_scaled)
+                    health_probs = probs[:, 0] # Probability of being Healthy
+                    
+                    # 6. Determine Result
+                    avg_health_score = np.mean(health_probs)
+                    
+                    # Display Result
+                    st.markdown("---")
+                    col_res1, col_res2 = st.columns(2)
+                    
+                    with col_res1:
+                        if avg_health_score > 0.5:
+                            st.markdown(f"<h1 style='color:green; text-align: center;'>HEALTHY</h1>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<h1 style='color:red; text-align: center;'>FAULTY</h1>", unsafe_allow_html=True)
+                    
+                    with col_res2:
+                        st.metric("Average Health Score", f"{avg_health_score:.2%}")
+                        if avg_health_score > 0.5:
+                            st.caption("Score > 50% indicates the system is operating within healthy parameters.")
+                        else:
+                            st.caption("Score < 50% indicates a fault is likely present.")
+
+                    # 7. Plot Health Probability over time
+                    st.subheader("Health Probability Over Time")
+                    fig_diag, ax_diag = plt.subplots(figsize=(12, 5))
+                    ax_diag.plot(health_probs, color='blue', label='Health Probability')
+                    ax_diag.axhline(0.5, color='red', linestyle='--', label='Decision Threshold (0.5)')
+                    ax_diag.fill_between(range(len(health_probs)), health_probs, 0.5, 
+                                         where=(health_probs < 0.5), color='red', alpha=0.3, label='Faulty Region')
+                    ax_diag.fill_between(range(len(health_probs)), health_probs, 0.5, 
+                                         where=(health_probs >= 0.5), color='green', alpha=0.3, label='Healthy Region')
+                    
+                    ax_diag.set_title('Health Probability Distribution across File Windows')
+                    ax_diag.set_xlabel('Window Index')
+                    ax_diag.set_ylabel('Probability (Healthy)')
+                    ax_diag.set_ylim(0, 1.05)
+                    ax_diag.legend(loc='upper right')
+                    ax_diag.grid(True, alpha=0.3)
+                    st.pyplot(fig_diag)
+                    plt.clf()
+
+                    # Optional: Detailed Fault Breakdown
+                    if avg_health_score < 0.5:
+                        st.subheader("Likely Fault Type")
+                        # Get class with highest average probability (excluding Healthy)
+                        # Average probabilities for each class
+                        avg_class_probs = np.mean(probs, axis=0)
+                        # Sort indices by probability descending
+                        sorted_indices = np.argsort(avg_class_probs)[::-1]
+                        
+                        # Find the top non-healthy class
+                        top_idx = sorted_indices[0]
+                        
+                        # If the top one is healthy (unlikely given score < 0.5, but possible), take next
+                        if top_idx == 0 and len(sorted_indices) > 1:
+                            top_idx = sorted_indices[1]
+                        
+                        st.warning(f"Most likely fault: **{class_names[top_idx]}** (Confidence: {avg_class_probs[top_idx]:.2%})")
+
+        except Exception as e:
+            st.error(f"An error occurred while processing the file: {e}")
