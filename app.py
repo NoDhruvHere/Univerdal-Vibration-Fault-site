@@ -8,7 +8,7 @@ import glob
 import re
 import subprocess
 import shutil
-from scipy import stats
+from scipy import stats  # <-- This is the library
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, recall_score, f1_score
@@ -105,11 +105,12 @@ def extract_features(signal):
     min_val = np.min(signal)
     rms_val = np.sqrt(np.mean(signal**2))
 
+    # Robust Skew/Kurtosis handling
     if std_val < 1e-10:
         skew_val = 0.0
         kurt_val = 0.0
     else:
-        skew_val = stats.skew(signal)
+        skew_val = stats.skew(signal) # Now correctly uses scipy.stats
         kurt_val = stats.kurtosis(signal)
 
     features.extend([mean_val, std_val, max_val, min_val, rms_val, skew_val, kurt_val,
@@ -242,11 +243,12 @@ current_config = APP_CONFIG[selected_mode]
 
 if st.sidebar.button("🔄 Load Data", use_container_width=True):
     with st.spinner(f"Downloading {selected_mode} data and processing..."):
-        X, y, speeds, stats, msg = load_pipeline_data(selected_mode, current_config)
+        # FIXED: Renamed 'stats' to 'file_load_stats' to avoid collision with scipy.stats
+        X, y, speeds, file_load_stats, msg = load_pipeline_data(selected_mode, current_config)
         st.session_state['X'] = X
         st.session_state['y'] = y
         st.session_state['speeds'] = speeds
-        st.session_state['stats'] = stats
+        st.session_state['file_load_stats'] = file_load_stats # Save to session state
         st.session_state['loaded'] = True
         st.session_state['trained'] = False
     st.sidebar.success("Data Loaded Successfully!")
@@ -258,7 +260,7 @@ if 'loaded' not in st.session_state or not st.session_state['loaded']:
 X = st.session_state['X']
 y = st.session_state['y']
 speeds = st.session_state['speeds']
-stats = st.session_state['stats']
+file_load_stats = st.session_state['file_load_stats'] # Retrieve from session state
 
 st.subheader("📂 Dataset Overview")
 col1, col2, col3 = st.columns(3)
@@ -267,8 +269,8 @@ col2.metric("Fault Classes", len(np.unique(y)))
 col3.metric("Unique Speeds Detected", len(np.unique(speeds[speeds>0])) if len(speeds) > 0 else 0)
 
 fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
-classes = list(stats.keys())
-counts = list(stats.values())
+classes = list(file_load_stats.keys())
+counts = list(file_load_stats.values())
 colors = ['green' if 'Healthy' in c else 'red' for c in classes]
 bars = ax_dist.bar(classes, counts, color=colors, alpha=0.7, edgecolor='black')
 ax_dist.set_title('Sample Distribution')
@@ -306,8 +308,8 @@ if st.button("🚀 Train Models & Generate Analysis", use_container_width=True, 
         # SAVE EVERYTHING NEEDED FOR LATER TABS
         st.session_state['models'] = models
         st.session_state['scaler'] = scaler
-        st.session_state['X_train'] = X_train      # <--- FIX: Saving X_train
-        st.session_state['y_train'] = y_train      # <--- FIX: Saving y_train
+        st.session_state['X_train'] = X_train
+        st.session_state['y_train'] = y_train
         st.session_state['X_test'] = X_test
         st.session_state['X_test_scaled'] = X_test_scaled
         st.session_state['y_test'] = y_test
@@ -322,8 +324,8 @@ if 'trained' not in st.session_state or not st.session_state['trained']:
 
 models = st.session_state['models']
 scaler = st.session_state['scaler']
-X_train = st.session_state['X_train'] # <--- FIX: Retrieve X_train
-y_train = st.session_state['y_train'] # <--- FIX: Retrieve y_train
+X_train = st.session_state['X_train']
+y_train = st.session_state['y_train']
 X_test = st.session_state['X_test']
 X_test_scaled = st.session_state['X_test_scaled']
 y_test = st.session_state['y_test']
@@ -344,13 +346,11 @@ with tab1:
     st.subheader("Random Forest: Training vs Test Accuracy")
     fig_lc, ax_lc = plt.subplots(figsize=(10, 5))
     
-    # Use the saved X_train and y_train
     rf_plot = RandomForestClassifier(warm_start=True, max_depth=100, min_samples_split=5, min_samples_leaf=2, random_state=42, n_jobs=-1)
     n_iterations = 100 
     train_acc, test_acc = [], []
     
     with st.spinner("Generating Learning Curve data..."):
-        # Create a local validation split from the training set
         X_tr, X_val, y_tr, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
         
         for i in range(1, n_iterations + 1):
